@@ -24,21 +24,37 @@ func NewNamedLock() *NamedLock {
 	}
 }
 
-func Create(key string)      { globalLock.Create(key) }
-func Delete(key string)      { globalLock.Delete(key) }
-func Lock(key string) error  { return globalLock.Lock(key) }
-func Unlock(key string)      { globalLock.Unlock(key) }
-func RLock(key string) error { return globalLock.RLock(key) }
-func RUnlock(key string)     { globalLock.RUnlock(key) }
+func Lock(key string)    { globalLock.Lock(key) }
+func Unlock(key string)  { globalLock.Unlock(key) }
+func RLock(key string)   { globalLock.RLock(key) }
+func RUnlock(key string) { globalLock.RUnlock(key) }
+func Delete(key string)  { globalLock.Delete(key) }
 
-func (nlk *NamedLock) Create(key string) {
-	lk := new(sync.RWMutex)
+func (nlk *NamedLock) Lock(key string) {
+	l := nlk.getOrNewLock(key)
 
-	nlk.locksLock.Lock()
-	defer nlk.locksLock.Unlock()
-	if _, ok := nlk.locks[key]; !ok {
-		nlk.locks[key] = lk
+	l.Lock()
+}
+
+func (nlk *NamedLock) Unlock(key string) {
+	l := nlk.getLock(key)
+	if l == nil {
+		return
 	}
+	l.Unlock()
+}
+
+func (nlk *NamedLock) RLock(key string) {
+	l := nlk.getOrNewLock(key)
+	l.RLock()
+}
+
+func (nlk *NamedLock) RUnlock(key string) {
+	l := nlk.getLock(key)
+	if l == nil {
+		return
+	}
+	l.RUnlock()
 }
 
 func (nlk *NamedLock) Delete(key string) {
@@ -47,45 +63,32 @@ func (nlk *NamedLock) Delete(key string) {
 	delete(nlk.locks, key)
 }
 
-func (nlk *NamedLock) Lock(key string) error {
-	l, ok := nlk.getLock(key)
-	if !ok {
-		return ErrLockNotExist
+func (nlk *NamedLock) getOrNewLock(key string) *sync.RWMutex {
+	if lk := nlk.getLock(key); lk != nil {
+		return lk
 	}
-
-	l.Lock()
-	return nil
+	return nlk.newLock(key)
 }
 
-func (nlk *NamedLock) Unlock(key string) {
-	l, ok := nlk.getLock(key)
-	if !ok {
-		return
-	}
-	l.Unlock()
-}
-
-func (nlk *NamedLock) RLock(key string) error {
-	l, ok := nlk.getLock(key)
-	if !ok {
-		return ErrLockNotExist
-	}
-	l.RLock()
-	return nil
-}
-
-func (nlk *NamedLock) RUnlock(key string) {
-	l, ok := nlk.getLock(key)
-	if !ok {
-		return
-	}
-	l.RUnlock()
-}
-
-func (nlk *NamedLock) getLock(key string) (*sync.RWMutex, bool) {
+func (nlk *NamedLock) getLock(key string) *sync.RWMutex {
 	nlk.locksLock.RLock()
 	defer nlk.locksLock.RUnlock()
 
-	l, ok := nlk.locks[key]
-	return l, ok
+	if l, ok := nlk.locks[key]; ok {
+		return l
+	}
+	return nil
+}
+
+func (nlk *NamedLock) newLock(key string) *sync.RWMutex {
+	nlk.locksLock.Lock()
+	defer nlk.locksLock.Unlock()
+
+	if lk, ok := nlk.locks[key]; ok {
+		return lk
+	}
+
+	newL := new(sync.RWMutex)
+	nlk.locks[key] = newL
+	return newL
 }
